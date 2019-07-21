@@ -35,9 +35,41 @@ input_loop:
 
 save_yes:
 	call print_char
+	jmp	load_bl
 
 save_no:
 	call print_char
+
+load_bl:								; load the normal boot loader
+; look for one active partition.
+	mov si, PartitionTable
+	xor ax, ax
+	mov cx, 4
+checkpartloop:
+	test byte [si], 80h
+	jz .notactive
+	inc ax
+	mov di, si
+.notactive:   add si, byte 16
+							loop checkpartloop
+	cmp ax, byte 1				; better be only one
+	jnz bad_disk
+
+; load the boot sector
+	push di
+	mov si, dapa
+	mov bx, [di+8]				; copy the block address
+	mov [si+8], bx
+	mov bx, [di+10]
+	mov [si+10], bx
+	mov dl, [DriveNo]
+	mov ah, 42h
+	int 13h
+	pop si								; DS:SI -> partition table entry
+	cmp word [7C00h+510], 0AA55h
+	jne missing_os
+	cli
+	jmp 0:7C00h						; jump to boot sector */
 
 print:									; w rejestrze edi print spodziewa się otrzymać adres bufora
 
@@ -56,10 +88,23 @@ print_char:							; w rejestrze al funkcja spodziewa się otrzymać argument - z
   int 0x10
   ret
 
+missing_os:
+	mov edi, missing_os_msg
+	jmp print
+
+bad_disk:
+	mov edi, bad_disk_msg
+	jmp print
+
+	align 4, db 0 ; Begin data area
+
+; Error messages
+missing_os_msg  db 'Missing operating system', 13, 10, 0
+bad_disk_msg    db 'Operating system loading error', 13, 10, 0
+
 BUF db 'Enter your choice: ', 0xd, 0xa, 0x0 ; napis kończy się znakiem nowej linii (0xd, 0xa) i nullem (0x0)
 dapa: dw 16							; disk address packet size
-DriveNo         equ 0800h
+
 PartitionTable  equ $$+446                      ; Start of partition table
 
-times 510 - ($ - $$) db 0;
-dw 0xaa55
+DriveNo         equ 0800h
